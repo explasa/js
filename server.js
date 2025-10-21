@@ -15,7 +15,7 @@ function isSafeCommand(command) {
   const dangerousCommands = [
     'rm -rf', 'sudo', 'passwd', 'chmod 777', 'dd if=', 
     'mkfs', 'fdisk', '> /dev/sda', ':(){ :|: & };:',
-    'wget', 'curl', 'bash -c', 'sh -c'
+    'curl', 'bash -c', 'sh -c'
   ];
   
   return !dangerousCommands.some(dangerous => 
