@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Web Terminal</title>
+    <title>Web Terminal with CD Support</title>
     <style>
         * {
             margin: 0;
@@ -41,9 +41,12 @@
             font-size: 18px;
         }
 
-        .status {
+        .current-dir {
             font-size: 14px;
-            color: #00ff00;
+            color: #00ffff;
+            background: #333;
+            padding: 2px 8px;
+            border-radius: 4px;
         }
 
         .output {
@@ -64,6 +67,7 @@
             color: #00ffff;
             margin-right: 10px;
             font-weight: bold;
+            white-space: nowrap;
         }
 
         #command-input {
@@ -97,47 +101,34 @@
             color: #5555ff;
         }
 
+        .directory {
+            color: #ffff55;
+        }
+
         .welcome {
             color: #ffff55;
             margin-bottom: 10px;
-        }
-
-        /* 滚动条样式 */
-        .output::-webkit-scrollbar {
-            width: 8px;
-        }
-
-        .output::-webkit-scrollbar-track {
-            background: #2d2d2d;
-        }
-
-        .output::-webkit-scrollbar-thumb {
-            background: #00ff00;
-            border-radius: 4px;
         }
     </style>
 </head>
 <body>
     <div class="terminal">
         <div class="header">
-            <div class="title">🔒 Secure Web Terminal</div>
-            <div class="status" id="status">● Connected</div>
+            <div class="title">💾 Web Terminal with CD Support</div>
+            <div class="current-dir" id="current-dir">/</div>
         </div>
         
         <div class="output" id="output">
             <div class="welcome">
-                🌐 Welcome to Web Terminal v1.0<br>
-                📍 Safe command execution environment<br>
-                ⚠️  Dangerous commands are blocked for security<br>
-                <br>
-                Available commands: ls, pwd, whoami, echo, cat, find, etc.<br>
-                Type 'help' for more information.<br>
+                🌐 Web Terminal with Directory Support<br>
+                📁 Now supports: cd, pwd, and maintains directory state<br>
+                💡 Each tab/window has its own session<br>
                 <br>
             </div>
         </div>
         
         <div class="command-line">
-            <span class="prompt">$</span>
+            <div class="prompt" id="prompt">$</div>
             <input type="text" id="command-input" placeholder="Type command here..." autofocus>
         </div>
     </div>
@@ -147,18 +138,26 @@
             constructor() {
                 this.output = document.getElementById('output');
                 this.input = document.getElementById('command-input');
-                this.status = document.getElementById('status');
+                this.prompt = document.getElementById('prompt');
+                this.currentDirElement = document.getElementById('current-dir');
                 this.commandHistory = [];
                 this.historyIndex = -1;
+                this.sessionId = this.generateSessionId();
+                this.currentDir = '/';
                 
                 this.init();
+            }
+
+            generateSessionId() {
+                return 'session-' + Math.random().toString(36).substr(2, 9);
             }
 
             init() {
                 this.input.addEventListener('keypress', this.handleKeyPress.bind(this));
                 this.input.addEventListener('keydown', this.handleKeyDown.bind(this));
                 
-                // 获取系统信息
+                // 获取初始目录信息
+                this.updatePrompt();
                 this.fetchSystemInfo();
             }
 
@@ -173,7 +172,6 @@
             }
 
             handleKeyDown(e) {
-                // 上下箭头浏览历史
                 if (e.key === 'ArrowUp') {
                     e.preventDefault();
                     if (this.commandHistory.length > 0) {
@@ -193,6 +191,9 @@
                         this.historyIndex = -1;
                         this.input.value = '';
                     }
+                } else if (e.key === 'Tab') {
+                    e.preventDefault();
+                    // 这里可以实现 tab 补全
                 }
             }
 
@@ -212,11 +213,17 @@
                     return;
                 }
 
+                if (command === 'pwd') {
+                    this.addOutput(this.currentDir, 'success');
+                    return;
+                }
+
                 try {
                     const response = await fetch('/api/execute', {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
+                            'Session-Id': this.sessionId
                         },
                         body: JSON.stringify({ command })
                     });
@@ -228,6 +235,13 @@
                     } else {
                         this.addOutput(data.error, 'error');
                     }
+                    
+                    // 更新当前目录
+                    if (data.currentDir) {
+                        this.currentDir = data.currentDir;
+                        this.updatePrompt();
+                    }
+                    
                 } catch (error) {
                     this.addOutput(`Network error: ${error.message}`, 'error');
                 }
@@ -241,6 +255,20 @@
                 this.scrollToBottom();
             }
 
+            updatePrompt() {
+                // 缩短长路径显示
+                let displayDir = this.currentDir;
+                if (displayDir.length > 30) {
+                    const parts = displayDir.split('/');
+                    if (parts.length > 3) {
+                        displayDir = '.../' + parts.slice(-2).join('/');
+                    }
+                }
+                
+                this.prompt.textContent = `[${displayDir}] $`;
+                this.currentDirElement.textContent = displayDir;
+            }
+
             clearOutput() {
                 this.output.innerHTML = '<div class="welcome">Terminal cleared</div>';
             }
@@ -251,23 +279,26 @@
 
             showHelp() {
                 const helpText = `
-Available commands:
-  ls, dir      - List directory contents
-  pwd          - Print working directory
+Directory Navigation:
+  cd <path>     - Change directory
+  cd ~         - Go to home directory
+  cd ..        - Go to parent directory
+  pwd          - Show current directory
+
+File Operations:
+  ls [path]    - List directory contents
+  cat <file>   - Display file content
+  find <path>  - Search for files
+
+System Info:
   whoami       - Show current user
-  echo         - Display message
-  cat          - Display file content
-  find         - Search for files
-  clear, cls   - Clear terminal
+  uname -a     - System information
+  df -h        - Disk usage
 
-System information:
-  platform     - ${navigator.platform}
-  user agent   - ${navigator.userAgent}
-
-Security:
-  ❌ Dangerous commands are blocked
-  ✅ Safe commands are allowed
-  ⏱️  15 second timeout per command
+Session:
+  Each browser tab has its own session
+  Directory state is maintained
+  Command history is preserved
                 `.trim();
                 
                 this.addOutput(helpText, 'info');
@@ -275,9 +306,15 @@ Security:
 
             async fetchSystemInfo() {
                 try {
-                    const response = await fetch('/api/system');
+                    const response = await fetch('/api/system', {
+                        headers: {
+                            'Session-Id': this.sessionId
+                        }
+                    });
                     const data = await response.json();
-                    this.addOutput(`System: ${data.platform}/${data.arch} | Node: ${data.nodeVersion}`, 'info');
+                    this.currentDir = data.currentDir;
+                    this.updatePrompt();
+                    this.addOutput(`💻 System: ${data.platform}/${data.arch} | 📁 Session: ${data.sessionId}`, 'info');
                 } catch (error) {
                     this.addOutput('Could not fetch system info', 'error');
                 }
@@ -291,4 +328,3 @@ Security:
     </script>
 </body>
 </html>
-
