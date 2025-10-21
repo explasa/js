@@ -28,52 +28,13 @@ function isSafeCommand(command) {
   const dangerousCommands = [
     'rm -rf', 'sudo', 'passwd', 'chmod 777', 'dd if=', 
     'mkfs', 'fdisk', '> /dev/sda', ':(){ :|: & };:',
-    'wget', 'curl', 'bash -c', 'sh -c'
+    'bash -c', 'sh -c'
   ];
   
   return !dangerousCommands.some(dangerous => 
     command.toLowerCase().includes(dangerous.toLowerCase())
   );
 }
-
-// 专门处理 alpine 下载和执行的端点
-app.post('/api/setup-alpine', async (req, res) => {
-  try {
-    const commands = [
-      `cd ${WORK_DIR}`,
-      'wget -q https://github.com/rxyxxy/tm/releases/download/test/alpine.tar.gz',
-      'tar xzf alpine.tar.gz',
-      'rm alpine.tar.gz'
-    ];
-
-    let output = '';
-    for (const cmd of commands) {
-      try {
-        const result = execSync(cmd, { 
-          timeout: 30000,
-          encoding: 'utf8'
-        });
-        output += `$ ${cmd}\n${result}\n`;
-      } catch (error) {
-        output += `$ ${cmd}\nError: ${error.message}\n`;
-        throw error;
-      }
-    }
-
-    res.json({
-      success: true,
-      output: output,
-      message: 'Alpine environment setup completed'
-    });
-
-  } catch (error) {
-    res.json({
-      success: false,
-      error: `Setup failed: ${error.message}`,
-      suggestion: 'Try using /tmp or /dev/shm directory manually'
-    });
-  }
-});
 
 // 在 proot 中执行命令
 app.post('/api/proot-exec', async (req, res) => {
