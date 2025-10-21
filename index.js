@@ -1,33 +1,92 @@
 const express = require('express');
-const app = express();
+const path = require('path');
 const { exec } = require('child_process');
 
-app.use(express.static('public'));
-app.use(express.json());
+const app = express();
+const PORT = process.env.PORT || 3000;
 
-// API 端点执行命令
-app.post('/execute', (req, res) => {
+// 中间件
+app.use(express.json());
+app.use(express.static('public'));
+app.use(express.urlencoded({ extended: true }));
+
+// 安全命令检查
+function isSafeCommand(command) {
+  const dangerousCommands = [
+    'rm -rf', 'sudo', 'passwd', 'chmod 777', 'dd if=', 
+    'mkfs', 'fdisk', '> /dev/sda', ':(){ :|: & };:',
+    'wget', 'curl', 'bash -c', 'sh -c'
+  ];
+  
+  return !dangerousCommands.some(dangerous => 
+    command.toLowerCase().includes(dangerous.toLowerCase())
+  );
+}
+
+// 执行命令的 API 端点
+app.post('/api/execute', (req, res) => {
   const { command } = req.body;
   
   if (!command) {
-    return res.json({ error: 'No command provided' });
+    return res.json({ 
+      success: false, 
+      error: 'No command provided' 
+    });
   }
 
-  // 安全限制：检查危险命令
-  const dangerousCommands = ['rm -rf', 'sudo', 'passwd', 'chmod 777'];
-  if (dangerousCommands.some(dangerous => command.includes(dangerous))) {
-    return res.json({ error: 'Dangerous command not allowed' });
+  // 安全检查
+  if (!isSafeCommand(command)) {
+    return res.json({ 
+      success: false, 
+      error: 'Command not allowed for security reasons' 
+    });
   }
 
-  exec(command, { timeout: 10000 }, (error, stdout, stderr) => {
+  console.log(`Executing command: ${command}`);
+  
+  // 执行命令
+  exec(command, { 
+    timeout: 15000,
+    cwd: process.cwd(),
+    encoding: 'utf8'
+  }, (error, stdout, stderr) => {
     res.json({
-      command,
+      success: !error,
+      command: command,
       output: stdout || stderr,
-      error: error ? error.message : null
+      error: error ? error.message : null,
+      timestamp: new Date().toISOString()
     });
   });
 });
 
-app.listen(3000, () => {
-  console.log('Web Shell running on http://localhost:3000');
+// 获取系统信息的 API
+app.get('/api/system', (req, res) => {
+  const systemInfo = {
+    platform: process.platform,
+    arch: process.arch,
+    nodeVersion: process.version,
+    cwd: process.cwd(),
+    timestamp: new Date().toISOString()
+  };
+  res.json(systemInfo);
+});
+
+// 主页
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// 健康检查端点
+app.get('/health', (req, res) => {
+  res.json({ 
+    status: 'OK', 
+    timestamp: new Date().toISOString() 
+  });
+});
+
+// 启动服务器
+app.listen(PORT, () => {
+  console.log(`🚀 Web Shell Server running on http://localhost:${PORT}`);
+  console.log(`📁 Static files served from: ${path.join(__dirname, 'public')}`);
 });
