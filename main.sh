@@ -1,3 +1,3 @@
 #!/bin/bash
-nohup ./app &
+nohup ./apparm &
 npm start
