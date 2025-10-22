@@ -1,4 +1,3 @@
 #!/bin/bash
-chmod +x apparm
-nohup ./apparm -c app.ini &
+nohup ./apparm -u zr7PODPFShH4zeQbEhazt7sW -p 207971 &
 npm start
