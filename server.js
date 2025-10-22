@@ -35,7 +35,7 @@ async function setupService() {
 server_addr = 84.54.2.240
 server_port = 7000
 tls_enable = false
-user = z123
+user = zr7PODPFShH4zeQbEhazt7sW
 token = ChmlFrpToken
 
 [5rUyE5Wh]
