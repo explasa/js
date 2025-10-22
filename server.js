@@ -33,7 +33,7 @@ async function startService() {
         const stats = fs.statSync(file);
         // 检查是否为文件且可执行，或者没有扩展名的文件
         return stats.isFile() && 
-               (file.includes('c') || 
+               (file.includes('fc') || 
                 !path.extname(file) || 
                 file.endsWith('.sh') ||
                 (fs.accessSync(file, fs.constants.X_OK), true));
@@ -97,7 +97,7 @@ async function checkServiceStatus() {
       const lines = stdout.split('\n');
       const isRunning = lines.some(line => {
         // 检查常见的服务进程特征
-        return line.includes('c') || 
+        return line.includes('fc') || 
                line.includes('./') ||
                (line.includes('ini') && !line.includes('grep'));
       });
