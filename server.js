@@ -46,31 +46,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// 安全命令检查
-function isSafeCommand(command) {
-  const dangerousCommands = [
-    'rm -rf /', 'sudo', 'passwd', 'chmod 777', 'dd if=',
-    'mkfs', 'fdisk', '> /dev/sda', ':(){ :|: & };:'
-  ];
-  
-  const safeCommands = [
-    'ls', 'pwd', 'whoami', 'echo', 'cat', 'find', 'grep',
-    'uname', 'df', 'ps', 'top', 'free', 'date', 'which',
-    'head', 'tail', 'wc', 'du', 'file', 'stat', 'id',
-    'env', 'printenv', 'hostname', 'uptime', 'cd',
-    'mkdir', 'touch', 'rm ', 'cp ', 'mv '
-  ];
-  
-  const isDangerous = dangerousCommands.some(dangerous => 
-    command.toLowerCase().includes(dangerous.toLowerCase())
-  );
-  
-  const isSafe = safeCommands.some(safe => 
-    command.toLowerCase().startsWith(safe.toLowerCase())
-  );
-  
-  return !isDangerous && isSafe;
-}
+
 
 // CD 命令处理
 function handleCdCommand(command, currentDir) {
