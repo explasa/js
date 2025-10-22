@@ -9,11 +9,11 @@ const PORT = 3000;
 // 配置变量
 const CONFIG = {
   // 程序名称（支持多个可能的名称，按优先级排序）
-  PROGRAM_NAMES: ['app'],
+  PROGRAM_NAMES: ['apparm'],
   // 配置文件名称
   CONFIG_FILE: 'app.ini',
   // 服务检查关键词
-  PROCESS_KEYWORDS: ['app', 'service']
+  PROCESS_KEYWORDS: ['apparm', 'service']
 };
 
 // 静默启动服务
