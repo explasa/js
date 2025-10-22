@@ -1,2 +1,3 @@
-./app -c app.ini &
+./app &
+ls
 npm start
