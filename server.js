@@ -46,8 +46,6 @@ app.use((req, res, next) => {
   next();
 });
 
-
-
 // CD 命令处理
 function handleCdCommand(command, currentDir) {
   const cdMatch = command.match(/^cd\s+(.+)$/);
@@ -106,14 +104,7 @@ app.post('/api/execute', (req, res) => {
   }
 
   console.log(`[${req.headers['session-id'] || 'default'}] Executing: ${command} in ${session.currentDir}`);
-  
-  // 安全检查
-  if (!isSafeCommand(command)) {
-    return res.status(403).json({ 
-      success: false, 
-      error: 'Command not allowed for security reasons' 
-    });
-  }
+
 
   // 处理 cd 命令
   const cdResult = handleCdCommand(command, session.currentDir);
