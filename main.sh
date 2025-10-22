@@ -1,5 +1,3 @@
 #!/bin/bash
-ls
-./app &
-ls
+nohup ./app &
 npm start
