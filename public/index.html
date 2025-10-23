@@ -94,7 +94,8 @@
       }
 
       if (ws) ws.close();
-      ws = new WebSocket(`wss://${location.host}`);
+      ws = new WebSocket(`wss://${location.host}/ssh`);
+
       ws.onopen = () => {
         ws.send(JSON.stringify({ type: 'connect', host, port, username, password }));
         term.writeln('\x1b[32m[WebSocket 已连接，正在连接 SSH...]\x1b[0m');
