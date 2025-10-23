@@ -1,172 +1,120 @@
-<!doctype html>
-<html>
+<!DOCTYPE html>
+<html lang="zh">
 <head>
-  <meta charset="utf-8" />
-  <title>Web SSH (Local)</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm/css/xterm.css" />
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WebSSH (本地 SSH)</title>
+
+  <!-- Xterm.js 核心 -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css" />
+  <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
+
+  <!-- Fit 插件 -->
+  <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.9.0/lib/xterm-addon-fit.min.js"></script>
+
   <style>
-    :root {
-      color-scheme: dark;
-    }
-    body {
+    html, body {
       margin: 0;
-      height: 100vh;
+      height: 100%;
+      width: 100%;
+      background: #111;
+      color: #eee;
       display: flex;
       flex-direction: column;
-      background: #000;
-      color: #fff;
-      font-family: sans-serif;
+      font-family: monospace;
     }
 
-    #top {
+    #form {
+      padding: 10px;
       display: flex;
       flex-wrap: wrap;
-      background: #111;
-      padding: 6px;
-      gap: 6px;
-      align-items: center;
-      justify-content: center;
-    }
-
-    #top input {
+      gap: 5px;
       background: #222;
-      border: none;
-      color: #fff;
-      padding: 6px;
+    }
+
+    input {
+      flex: 1;
+      min-width: 120px;
+      padding: 8px;
       border-radius: 4px;
-      font-size: 14px;
-      width: 110px;
-    }
-
-    #top label {
-      font-size: 13px;
-      display: flex;
-      flex-direction: column;
-      align-items: flex-start;
-      color: #bbb;
-    }
-
-    #connect {
-      background: #007bff;
       border: none;
-      color: #fff;
-      border-radius: 4px;
-      padding: 8px 12px;
-      font-size: 14px;
+      background: #333;
+      color: white;
     }
 
-    #term {
+    button {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 6px;
+      background: #1e88e5;
+      color: white;
+      font-size: 1em;
+    }
+
+    #terminal {
       flex: 1;
       width: 100%;
     }
-
-    @media (max-width: 600px) {
-      #top {
-        flex-direction: column;
-        align-items: stretch;
-      }
-      #top input {
-        width: 100%;
-      }
-      #connect {
-        width: 100%;
-      }
-    }
   </style>
 </head>
+
 <body>
-  <div id="top">
-    <label>Host <input id="host" value="127.0.0.1" /></label>
-    <label>Port <input id="port" value="22" /></label>
-    <label>User <input id="user" /></label>
-    <label>Password <input id="pass" type="password" /></label>
-    <button id="connect">Connect</button>
+  <div id="form">
+    <input id="host" placeholder="主机 (默认 127.0.0.1)" value="127.0.0.1">
+    <input id="port" placeholder="端口" value="22">
+    <input id="username" placeholder="用户名">
+    <input id="password" type="password" placeholder="密码">
+    <button id="connectBtn">连接</button>
   </div>
 
-  <div id="term"></div>
+  <div id="terminal"></div>
 
-  <script src="https://cdn.jsdelivr.net/npm/xterm/lib/xterm.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit/lib/xterm-addon-fit.js"></script>
   <script>
-    const { Terminal } = window;
-    const { FitAddon } = window;
     const term = new Terminal({
       cursorBlink: true,
-      fontFamily: 'monospace',
       fontSize: 14,
-      theme: { background: '#000000', foreground: '#ffffff' }
+      theme: { background: '#000000' }
     });
-    const fitAddon = new FitAddon();
+    const fitAddon = new FitAddon.FitAddon();
     term.loadAddon(fitAddon);
-    term.open(document.getElementById('term'));
+    term.open(document.getElementById('terminal'));
     fitAddon.fit();
 
     let ws;
 
-    function connectSSH() {
-      const host = document.getElementById('host').value.trim() || '127.0.0.1';
-      const port = parseInt(document.getElementById('port').value || '22');
-      const username = document.getElementById('user').value.trim();
-      const password = document.getElementById('pass').value;
+    document.getElementById('connectBtn').onclick = () => {
+      const host = document.getElementById('host').value;
+      const port = document.getElementById('port').value;
+      const username = document.getElementById('username').value;
+      const password = document.getElementById('password').value;
 
-      const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-      ws = new WebSocket(`${proto}://${location.host}/ssh`);
-      ws.binaryType = 'arraybuffer';
+      if (!username || !password) {
+        alert('请输入用户名和密码');
+        return;
+      }
 
+      if (ws) ws.close();
+      ws = new WebSocket(`ws://${location.host}`);
       ws.onopen = () => {
-        term.clear();
-        term.writeln('Connecting to SSH...');
-        ws.send(JSON.stringify({
-          type: 'auth',
-          host,
-          port,
-          username,
-          password,
-          cols: term.cols,
-          rows: term.rows,
-          term: 'xterm-256color'
-        }));
+        ws.send(JSON.stringify({ type: 'connect', host, port, username, password }));
+        term.writeln('\x1b[32m[WebSocket 已连接，正在连接 SSH...]\x1b[0m');
       };
-
-      ws.onmessage = (ev) => {
-        if (typeof ev.data === 'string') {
-          try {
-            const j = JSON.parse(ev.data);
-            if (j.type === 'error' || j.type === 'stderr') {
-              term.writeln('\r\n[ERROR] ' + (j.message || j.data));
-            }
-            return;
-          } catch (e) {}
-        }
-        const data = typeof ev.data === 'string' ? ev.data : new TextDecoder().decode(ev.data);
-        term.write(data);
+      ws.onmessage = (event) => {
+        const msg = JSON.parse(event.data);
+        if (msg.type === 'data') term.write(msg.data);
+        else if (msg.type === 'status') term.writeln(`\x1b[33m${msg.data}\x1b[0m`);
+        else if (msg.type === 'error') term.writeln(`\x1b[31m${msg.data}\x1b[0m`);
       };
+      ws.onclose = () => term.writeln('\x1b[31m[WebSocket 连接关闭]\x1b[0m');
+    };
 
-      ws.onclose = () => term.writeln('\r\n*** Disconnected ***');
-      ws.onerror = (err) => term.writeln('\r\n[WebSocket error]');
-
-      term.onData(d => ws && ws.readyState === WebSocket.OPEN && ws.send(d));
-
-      window.addEventListener('resize', () => {
-        fitAddon.fit();
-        if (ws && ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
-        }
-      });
-    }
-
-    document.getElementById('connect').addEventListener('click', connectSSH);
-    console.log("Connect button script loaded");
-
-
-    window.addEventListener('load', () => {
-      fitAddon.fit();
-      // 触发输入框软键盘时，滚动到终端底部，避免遮挡
-      document.getElementById('pass').addEventListener('focus', () => {
-        setTimeout(() => window.scrollTo(0, document.body.scrollHeight), 300);
-      });
+    term.onData(data => {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'input', data }));
+      }
     });
+
+    window.addEventListener('resize', () => fitAddon.fit());
   </script>
 </body>
 </html>
