@@ -1,590 +1,116 @@
-<!DOCTYPE html>
-<html lang="en">
+<!doctype html>
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Web Terminal with File Support</title>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        body {
-            font-family: 'Courier New', monospace;
-            background: #1a1a1a;
-            color: #00ff00;
-            height: 100vh;
-            overflow: hidden;
-        }
-
-        .terminal {
-            width: 100%;
-            height: 100vh;
-            padding: 20px;
-            display: flex;
-            flex-direction: column;
-        }
-
-        .header {
-            background: #2d2d2d;
-            padding: 10px 20px;
-            border-bottom: 2px solid #00ff00;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .title {
-            font-weight: bold;
-            font-size: 18px;
-        }
-
-        .current-dir {
-            font-size: 14px;
-            color: #00ffff;
-            background: #333;
-            padding: 2px 8px;
-            border-radius: 4px;
-            max-width: 300px;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
-
-        .output {
-            flex: 1;
-            overflow-y: auto;
-            padding: 20px 0;
-            line-height: 1.4;
-        }
-
-        .command-line {
-            display: flex;
-            align-items: center;
-            padding: 10px 0;
-            border-top: 1px solid #333;
-        }
-
-        .prompt {
-            color: #00ffff;
-            margin-right: 10px;
-            font-weight: bold;
-            white-space: nowrap;
-        }
-
-        #command-input {
-            background: transparent;
-            border: none;
-            color: #00ff00;
-            font-family: 'Courier New', monospace;
-            font-size: 16px;
-            outline: none;
-            flex: 1;
-        }
-
-        .output-line {
-            margin-bottom: 5px;
-            word-break: break-all;
-        }
-
-        .command {
-            color: #00ffff;
-        }
-
-        .error {
-            color: #ff5555;
-        }
-
-        .success {
-            color: #00ff00;
-        }
-
-        .info {
-            color: #5555ff;
-        }
-
-        .directory {
-            color: #ffff55;
-        }
-
-        .welcome {
-            color: #ffff55;
-            margin-bottom: 10px;
-        }
-
-        .file-list {
-            margin: 10px 0;
-            padding-left: 20px;
-        }
-
-        .file-item {
-            margin: 2px 0;
-        }
-
-        /* 滚动条样式 */
-        .output::-webkit-scrollbar {
-            width: 8px;
-        }
-
-        .output::-webkit-scrollbar-track {
-            background: #2d2d2d;
-        }
-
-        .output::-webkit-scrollbar-thumb {
-            background: #00ff00;
-            border-radius: 4px;
-        }
-
-        .upload-area {
-            border: 2px dashed #00ff00;
-            padding: 10px;
-            margin: 10px 0;
-            border-radius: 5px;
-            text-align: center;
-            cursor: pointer;
-        }
-
-        .upload-area:hover {
-            background: #2d2d2d;
-        }
-
-        .button {
-            background: #00ff00;
-            color: #1a1a1a;
-            border: none;
-            padding: 5px 10px;
-            margin: 2px;
-            border-radius: 3px;
-            cursor: pointer;
-            font-family: 'Courier New', monospace;
-            font-size: 12px;
-        }
-
-        .button:hover {
-            background: #00cc00;
-        }
-
-        .controls {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 10px;
-        }
-    </style>
+  <meta charset="utf-8" />
+  <title>Web SSH (local)</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm/css/xterm.css" />
+  <style>
+    body { margin:0; height:100vh; display:flex; flex-direction:column; }
+    #top { padding:8px; background:#111; color:#fff; display:flex; gap:8px; align-items:center; }
+    #term { flex:1; }
+    input { padding:6px; }
+    button { padding:6px 10px; }
+  </style>
 </head>
 <body>
-    <div class="terminal">
-        <div class="header">
-            <div class="title">💾 Web Terminal with File Support</div>
-            <div class="current-dir" id="current-dir">/</div>
-        </div>
-        
-        <div class="controls">
-            <button class="button" onclick="terminal.clearOutput()">Clear</button>
-            <button class="button" onclick="terminal.showHelp()">Help</button>
-            <button class="button" onclick="terminal.listFiles()">List Files</button>
-            <button class="button" onclick="terminal.showUploadDialog()">Upload</button>
-            <button class="button" onclick="terminal.resetSession()">Reset Session</button>
-        </div>
-        
-        <div class="output" id="output">
-            <div class="welcome">
-                🌐 Web Terminal with Full File Support<br>
-                📁 Supports: cd, file creation, uploads, and directory navigation<br>
-                💡 Each browser tab has independent session<br>
-                ✅ Writable directory: /tmp/web-shell-writable<br>
-                <br>
-                Type 'help' for available commands<br>
-                <br>
-            </div>
-        </div>
-        
-        <div class="command-line">
-            <div class="prompt" id="prompt">$</div>
-            <input type="text" id="command-input" placeholder="Type command here..." autofocus>
-        </div>
-    </div>
+  <div id="top">
+    <label>Host: <input id="host" value="127.0.0.1" /></label>
+    <label>Port: <input id="port" value="22" style="width:60px" /></label>
+    <label>User: <input id="user" value="" /></label>
+    <label>Password: <input id="pass" type="password" /></label>
+    <button id="connect">Connect</button>
+    <small style="margin-left:8px;color:#bbb">或将私钥文本粘贴到密码框并勾选“私钥模式”。（演示用）</small>
+  </div>
 
-    <!-- 文件上传对话框 -->
-    <div id="upload-dialog" style="display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #2d2d2d; padding: 20px; border: 2px solid #00ff00; border-radius: 5px; z-index: 1000;">
-        <h3 style="color: #00ff00; margin-bottom: 15px;">📤 Upload File</h3>
-        <input type="text" id="upload-filename" placeholder="Filename" style="width: 100%; padding: 8px; margin-bottom: 10px; background: #1a1a1a; color: #00ff00; border: 1px solid #00ff00; border-radius: 3px;">
-        <textarea id="upload-content" placeholder="File content" style="width: 100%; height: 150px; padding: 8px; margin-bottom: 10px; background: #1a1a1a; color: #00ff00; border: 1px solid #00ff00; border-radius: 3px; resize: vertical;"></textarea>
-        <div style="display: flex; gap: 10px;">
-            <button class="button" onclick="terminal.uploadFile()">Upload</button>
-            <button class="button" onclick="terminal.hideUploadDialog()" style="background: #ff5555;">Cancel</button>
-        </div>
-    </div>
+  <div id="term"></div>
 
-    <script>
-        class WebTerminal {
-            constructor() {
-                this.output = document.getElementById('output');
-                this.input = document.getElementById('command-input');
-                this.prompt = document.getElementById('prompt');
-                this.currentDirElement = document.getElementById('current-dir');
-                this.commandHistory = [];
-                this.historyIndex = -1;
-                this.sessionId = this.generateSessionId();
-                this.currentDir = '/';
-                this.workDir = '/tmp/web-shell-writable';
-                
-                this.init();
+  <script src="https://cdn.jsdelivr.net/npm/xterm/lib/xterm.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit/lib/xterm-addon-fit.js"></script>
+  <script>
+    const { Terminal } = window;
+    const { FitAddon } = window;
+    const term = new Terminal({ cols: 80, rows: 24, cursorBlink: true });
+    const fitAddon = new FitAddon();
+    term.loadAddon(fitAddon);
+    term.open(document.getElementById('term'));
+    fitAddon.fit();
+
+    let ws;
+    document.getElementById('connect').addEventListener('click', () => {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.close();
+        return;
+      }
+
+      const host = document.getElementById('host').value || '127.0.0.1';
+      const port = parseInt(document.getElementById('port').value || '22', 10);
+      const username = document.getElementById('user').value || '';
+      const password = document.getElementById('pass').value || '';
+
+      const proto = (location.protocol === 'https:') ? 'wss' : 'ws';
+      ws = new WebSocket(`${proto}://${location.host}/ssh`);
+      ws.binaryType = 'arraybuffer';
+
+      ws.onopen = () => {
+        term.clear();
+        term.writeln('WebSocket connected — sending auth...');
+        // send auth JSON
+        ws.send(JSON.stringify({
+          type: 'auth',
+          host,
+          port,
+          username,
+          password,
+          cols: term.cols,
+          rows: term.rows,
+          term: 'xterm-256color'
+        }));
+      };
+
+      ws.onmessage = (ev) => {
+        // server may send JSON messages (strings) or binary shell data (ArrayBuffer)
+        if (typeof ev.data === 'string') {
+          try {
+            const j = JSON.parse(ev.data);
+            if (j.type === 'error' || j.type === 'stderr') {
+              term.writeln('\r\n[ERROR] ' + (j.message || j.data));
             }
-
-            generateSessionId() {
-                return 'session-' + Math.random().toString(36).substr(2, 9);
-            }
-
-            init() {
-                this.input.addEventListener('keypress', this.handleKeyPress.bind(this));
-                this.input.addEventListener('keydown', this.handleKeyDown.bind(this));
-                
-                this.updatePrompt();
-                this.fetchSystemInfo();
-                
-                // 显示初始信息
-                this.addOutput(`Session ID: ${this.sessionId}`, 'info');
-                this.addOutput(`Writable directory: ${this.workDir}`, 'info');
-            }
-
-            handleKeyPress(e) {
-                if (e.key === 'Enter') {
-                    const command = this.input.value.trim();
-                    if (command) {
-                        this.executeCommand(command);
-                        this.input.value = '';
-                    }
-                }
-            }
-
-            handleKeyDown(e) {
-                if (e.key === 'ArrowUp') {
-                    e.preventDefault();
-                    if (this.commandHistory.length > 0) {
-                        if (this.historyIndex === -1) {
-                            this.historyIndex = this.commandHistory.length - 1;
-                        } else if (this.historyIndex > 0) {
-                            this.historyIndex--;
-                        }
-                        this.input.value = this.commandHistory[this.historyIndex];
-                    }
-                } else if (e.key === 'ArrowDown') {
-                    e.preventDefault();
-                    if (this.historyIndex < this.commandHistory.length - 1) {
-                        this.historyIndex++;
-                        this.input.value = this.commandHistory[this.historyIndex];
-                    } else {
-                        this.historyIndex = -1;
-                        this.input.value = '';
-                    }
-                } else if (e.key === 'Tab') {
-                    e.preventDefault();
-                    // Tab 补全可以在这里实现
-                }
-            }
-
-            async executeCommand(command) {
-                this.addOutput(`$ ${command}`, 'command');
-                this.commandHistory.push(command);
-                this.historyIndex = -1;
-
-                // 内置命令处理
-                if (command === 'clear' || command === 'cls') {
-                    this.clearOutput();
-                    return;
-                }
-
-                if (command === 'help') {
-                    this.showHelp();
-                    return;
-                }
-
-                if (command === 'pwd') {
-                    this.addOutput(this.currentDir, 'success');
-                    return;
-                }
-
-                if (command === 'files' || command === 'ls-uploads') {
-                    await this.listFiles();
-                    return;
-                }
-
-                if (command === 'session') {
-                    this.addOutput(`Session ID: ${this.sessionId}`, 'info');
-                    this.addOutput(`Current directory: ${this.currentDir}`, 'info');
-                    this.addOutput(`Writable directory: ${this.workDir}`, 'info');
-                    return;
-                }
-
-                // 文件创建命令
-                if (command.startsWith('create ')) {
-                    const parts = command.split(' ');
-                    if (parts.length >= 3) {
-                        const filename = parts[1];
-                        const content = parts.slice(2).join(' ');
-                        await this.uploadFileDirect(filename, content);
-                        return;
-                    } else {
-                        this.addOutput('Usage: create <filename> <content>', 'error');
-                        return;
-                    }
-                }
-
-                // 普通命令执行
-                try {
-                    const response = await fetch('/api/execute', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Session-Id': this.sessionId
-                        },
-                        body: JSON.stringify({ command })
-                    });
-
-                    const data = await response.json();
-                    
-                    if (data.success) {
-                        this.addOutput(data.output, 'success');
-                    } else {
-                        this.addOutput(data.error, 'error');
-                    }
-                    
-                    // 更新当前目录
-                    if (data.currentDir) {
-                        this.currentDir = data.currentDir;
-                        this.updatePrompt();
-                    }
-                    
-                } catch (error) {
-                    this.addOutput(`Network error: ${error.message}`, 'error');
-                }
-            }
-
-            addOutput(text, className = 'success') {
-                const line = document.createElement('div');
-                line.className = `output-line ${className}`;
-                line.textContent = text;
-                this.output.appendChild(line);
-                this.scrollToBottom();
-            }
-
-            updatePrompt() {
-                // 缩短长路径显示
-                let displayDir = this.currentDir;
-                if (displayDir.length > 30) {
-                    const parts = displayDir.split('/');
-                    if (parts.length > 3) {
-                        displayDir = '.../' + parts.slice(-2).join('/');
-                    }
-                }
-                
-                this.prompt.textContent = `[${displayDir}] $`;
-                this.currentDirElement.textContent = displayDir;
-            }
-
-            clearOutput() {
-                this.output.innerHTML = '<div class="welcome">Terminal cleared - Session remains active</div>';
-            }
-
-            scrollToBottom() {
-                this.output.scrollTop = this.output.scrollHeight;
-            }
-
-            showHelp() {
-                const helpText = `
-🌐 WEB TERMINAL HELP
-
-📁 DIRECTORY NAVIGATION:
-  cd <path>        - Change directory
-  cd ~            - Go to home directory  
-  cd ..           - Go to parent directory
-  pwd             - Show current directory
-  ls [options]    - List directory contents
-
-📝 FILE OPERATIONS:
-  echo "text" > file.txt    - Create text file
-  touch filename           - Create empty file
-  cat filename             - View file content
-  rm filename              - Remove file
-  mkdir dirname            - Create directory
-  cp source dest           - Copy file
-  mv source dest           - Move/rename file
-
-🛠️ SPECIAL COMMANDS:
-  files                    - List uploaded files
-  create filename content  - Create file with content
-  session                  - Show session information
-  clear / cls              - Clear terminal screen
-  help                     - Show this help
-
-📤 FILE UPLOAD:
-  Use the "Upload" button to create files via web interface
-
-💡 TIPS:
-  - Each browser tab has independent session
-  - Command history (↑↓ arrows)
-  - Writable directory: /tmp/web-shell-writable
-  - Safe command execution with timeout
-                `.trim();
-                
-                this.addOutput(helpText, 'info');
-            }
-
-            async uploadFileDirect(filename, content) {
-                this.addOutput(`📤 Creating file: ${filename}`, 'info');
-                
-                try {
-                    const response = await fetch('/api/upload', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify({ 
-                            filename: filename,
-                            content: content
-                        })
-                    });
-
-                    const data = await response.json();
-                    
-                    if (data.success) {
-                        this.addOutput(`✅ File created: ${filename} (${data.size} bytes)`, 'success');
-                        this.addOutput(`📁 Path: ${data.path}`, 'info');
-                    } else {
-                        this.addOutput(`❌ File creation failed: ${data.error}`, 'error');
-                    }
-                } catch (error) {
-                    this.addOutput(`❌ Upload error: ${error.message}`, 'error');
-                }
-            }
-
-            async listFiles() {
-                try {
-                    const response = await fetch('/api/files');
-                    const data = await response.json();
-                    
-                    if (data.success) {
-                        if (data.files.length === 0) {
-                            this.addOutput('No files in upload directory', 'info');
-                        } else {
-                            this.addOutput(`📁 Files in upload directory (${data.count} files):`, 'info');
-                            const fileList = document.createElement('div');
-                            fileList.className = 'file-list';
-                            
-                            data.files.forEach(file => {
-                                const fileItem = document.createElement('div');
-                                fileItem.className = 'file-item';
-                                const size = this.formatFileSize(file.size);
-                                const type = file.isDirectory ? '📁' : '📄';
-                                const date = new Date(file.modified).toLocaleString();
-                                fileItem.textContent = `${type} ${file.name} (${size}) - ${date}`;
-                                fileList.appendChild(fileItem);
-                            });
-                            
-                            this.output.appendChild(fileList);
-                        }
-                    } else {
-                        this.addOutput(`❌ Cannot list files: ${data.error}`, 'error');
-                    }
-                } catch (error) {
-                    this.addOutput(`❌ List files error: ${error.message}`, 'error');
-                }
-            }
-
-            formatFileSize(bytes) {
-                if (bytes === 0) return '0 B';
-                const k = 1024;
-                const sizes = ['B', 'KB', 'MB', 'GB'];
-                const i = Math.floor(Math.log(bytes) / Math.log(k));
-                return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-            }
-
-            showUploadDialog() {
-                document.getElementById('upload-dialog').style.display = 'block';
-                document.getElementById('upload-filename').value = '';
-                document.getElementById('upload-content').value = '';
-                document.getElementById('upload-filename').focus();
-            }
-
-            hideUploadDialog() {
-                document.getElementById('upload-dialog').style.display = 'none';
-            }
-
-            async uploadFile() {
-                const filename = document.getElementById('upload-filename').value.trim();
-                const content = document.getElementById('upload-content').value;
-                
-                if (!filename) {
-                    alert('Please enter a filename');
-                    return;
-                }
-                
-                await this.uploadFileDirect(filename, content);
-                this.hideUploadDialog();
-            }
-
-            async resetSession() {
-                try {
-                    const response = await fetch('/api/reset', {
-                        method: 'POST',
-                        headers: {
-                            'Session-Id': this.sessionId
-                        }
-                    });
-                    
-                    const data = await response.json();
-                    if (data.success) {
-                        this.addOutput('✅ Session reset - Back to initial directory', 'success');
-                        this.currentDir = this.workDir;
-                        this.updatePrompt();
-                        this.commandHistory = [];
-                    }
-                } catch (error) {
-                    this.addOutput(`❌ Reset failed: ${error.message}`, 'error');
-                }
-            }
-
-            async fetchSystemInfo() {
-                try {
-                    const response = await fetch('/api/system', {
-                        headers: {
-                            'Session-Id': this.sessionId
-                        }
-                    });
-                    const data = await response.json();
-                    this.currentDir = data.currentDir;
-                    this.workDir = data.workDir;
-                    this.updatePrompt();
-                    this.addOutput(`💻 System: ${data.platform}/${data.arch} | Node: ${data.nodeVersion}`, 'info');
-                    this.addOutput(`📁 Writable: ${data.writable ? '✅' : '❌'} | Upload Dir: ${data.uploadDir}`, 'info');
-                } catch (error) {
-                    this.addOutput('❌ Could not fetch system info', 'error');
-                }
-            }
+            return;
+          } catch (e) {
+            // not json, continue
+          }
         }
+        // binary or plain text shell output
+        const data = (typeof ev.data === 'string') ? ev.data : new TextDecoder().decode(ev.data);
+        term.write(data);
+      };
 
-        // 初始化终端
-        let terminal;
-        document.addEventListener('DOMContentLoaded', () => {
-            terminal = new WebTerminal();
-        });
+      ws.onclose = () => {
+        term.writeln('\r\n*** disconnected ***');
+      };
+      ws.onerror = (err) => {
+        console.error('WS error', err);
+      };
 
-        // 点击背景关闭上传对话框
-        document.addEventListener('click', (e) => {
-            const dialog = document.getElementById('upload-dialog');
-            if (e.target === dialog) {
-                terminal.hideUploadDialog();
-            }
-        });
+      // terminal input -> websocket
+      term.onData(d => {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(d);
+        }
+      });
 
-        // ESC键关闭上传对话框
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape') {
-                terminal.hideUploadDialog();
-            }
-        });
-    </script>
+      // handle resize
+      window.addEventListener('resize', () => {
+        fitAddon.fit();
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+        }
+      });
+    });
+
+    // auto-fit on load
+    window.addEventListener('load', () => { fitAddon.fit(); });
+  </script>
 </body>
 </html>
