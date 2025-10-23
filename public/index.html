@@ -2,25 +2,86 @@
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>Web SSH (local)</title>
-  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Web SSH (Local)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm/css/xterm.css" />
   <style>
-    body { margin:0; height:100vh; display:flex; flex-direction:column; }
-    #top { padding:8px; background:#111; color:#fff; display:flex; gap:8px; align-items:center; }
-    #term { flex:1; }
-    input { padding:6px; }
-    button { padding:6px 10px; }
+    :root {
+      color-scheme: dark;
+    }
+    body {
+      margin: 0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      background: #000;
+      color: #fff;
+      font-family: sans-serif;
+    }
+
+    #top {
+      display: flex;
+      flex-wrap: wrap;
+      background: #111;
+      padding: 6px;
+      gap: 6px;
+      align-items: center;
+      justify-content: center;
+    }
+
+    #top input {
+      background: #222;
+      border: none;
+      color: #fff;
+      padding: 6px;
+      border-radius: 4px;
+      font-size: 14px;
+      width: 110px;
+    }
+
+    #top label {
+      font-size: 13px;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      color: #bbb;
+    }
+
+    #connect {
+      background: #007bff;
+      border: none;
+      color: #fff;
+      border-radius: 4px;
+      padding: 8px 12px;
+      font-size: 14px;
+    }
+
+    #term {
+      flex: 1;
+      width: 100%;
+    }
+
+    @media (max-width: 600px) {
+      #top {
+        flex-direction: column;
+        align-items: stretch;
+      }
+      #top input {
+        width: 100%;
+      }
+      #connect {
+        width: 100%;
+      }
+    }
   </style>
 </head>
 <body>
   <div id="top">
-    <label>Host: <input id="host" value="127.0.0.1" /></label>
-    <label>Port: <input id="port" value="22" style="width:60px" /></label>
-    <label>User: <input id="user" value="" /></label>
-    <label>Password: <input id="pass" type="password" /></label>
+    <label>Host <input id="host" value="127.0.0.1" /></label>
+    <label>Port <input id="port" value="22" /></label>
+    <label>User <input id="user" /></label>
+    <label>Password <input id="pass" type="password" /></label>
     <button id="connect">Connect</button>
-    <small style="margin-left:8px;color:#bbb">或将私钥文本粘贴到密码框并勾选“私钥模式”。（演示用）</small>
   </div>
 
   <div id="term"></div>
@@ -30,32 +91,32 @@
   <script>
     const { Terminal } = window;
     const { FitAddon } = window;
-    const term = new Terminal({ cols: 80, rows: 24, cursorBlink: true });
+    const term = new Terminal({
+      cursorBlink: true,
+      fontFamily: 'monospace',
+      fontSize: 14,
+      theme: { background: '#000000', foreground: '#ffffff' }
+    });
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
     term.open(document.getElementById('term'));
     fitAddon.fit();
 
     let ws;
-    document.getElementById('connect').addEventListener('click', () => {
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.close();
-        return;
-      }
 
-      const host = document.getElementById('host').value || '127.0.0.1';
-      const port = parseInt(document.getElementById('port').value || '22', 10);
-      const username = document.getElementById('user').value || '';
-      const password = document.getElementById('pass').value || '';
+    function connectSSH() {
+      const host = document.getElementById('host').value.trim() || '127.0.0.1';
+      const port = parseInt(document.getElementById('port').value || '22');
+      const username = document.getElementById('user').value.trim();
+      const password = document.getElementById('pass').value;
 
-      const proto = (location.protocol === 'https:') ? 'wss' : 'ws';
+      const proto = location.protocol === 'https:' ? 'wss' : 'ws';
       ws = new WebSocket(`${proto}://${location.host}/ssh`);
       ws.binaryType = 'arraybuffer';
 
       ws.onopen = () => {
         term.clear();
-        term.writeln('WebSocket connected — sending auth...');
-        // send auth JSON
+        term.writeln('Connecting to SSH...');
         ws.send(JSON.stringify({
           type: 'auth',
           host,
@@ -69,7 +130,6 @@
       };
 
       ws.onmessage = (ev) => {
-        // server may send JSON messages (strings) or binary shell data (ArrayBuffer)
         if (typeof ev.data === 'string') {
           try {
             const j = JSON.parse(ev.data);
@@ -77,40 +137,34 @@
               term.writeln('\r\n[ERROR] ' + (j.message || j.data));
             }
             return;
-          } catch (e) {
-            // not json, continue
-          }
+          } catch (e) {}
         }
-        // binary or plain text shell output
-        const data = (typeof ev.data === 'string') ? ev.data : new TextDecoder().decode(ev.data);
+        const data = typeof ev.data === 'string' ? ev.data : new TextDecoder().decode(ev.data);
         term.write(data);
       };
 
-      ws.onclose = () => {
-        term.writeln('\r\n*** disconnected ***');
-      };
-      ws.onerror = (err) => {
-        console.error('WS error', err);
-      };
+      ws.onclose = () => term.writeln('\r\n*** Disconnected ***');
+      ws.onerror = (err) => term.writeln('\r\n[WebSocket error]');
 
-      // terminal input -> websocket
-      term.onData(d => {
-        if (ws && ws.readyState === WebSocket.OPEN) {
-          ws.send(d);
-        }
-      });
+      term.onData(d => ws && ws.readyState === WebSocket.OPEN && ws.send(d));
 
-      // handle resize
       window.addEventListener('resize', () => {
         fitAddon.fit();
         if (ws && ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
         }
       });
-    });
+    }
 
-    // auto-fit on load
-    window.addEventListener('load', () => { fitAddon.fit(); });
+    document.getElementById('connect').addEventListener('click', connectSSH);
+
+    window.addEventListener('load', () => {
+      fitAddon.fit();
+      // 触发输入框软键盘时，滚动到终端底部，避免遮挡
+      document.getElementById('pass').addEventListener('focus', () => {
+        setTimeout(() => window.scrollTo(0, document.body.scrollHeight), 300);
+      });
+    });
   </script>
 </body>
 </html>
